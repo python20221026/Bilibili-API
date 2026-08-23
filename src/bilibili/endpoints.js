@@ -1,0 +1,26 @@
+// Bilibili web API endpoints. Mirrors crawlers/bilibili/web/endpoints.py.
+const API = 'https://api.bilibili.com'
+const LIVE = 'https://api.live.bilibili.com'
+
+export const BiliEndpoints = {
+  POST_DETAIL: `${API}/x/web-interface/view`, // ?bvid=  (no wbi)
+  VIDEO_PLAYURL: `${API}/x/player/wbi/playurl`, // wbi
+  VIDEO_PARTS: `${API}/x/player/pagelist`, // ?bvid=
+  VIDEO_TAGS: `${API}/x/tag/archive/tags`, // ?bvid=  (UP-assigned tags)
+  USER_POST: `${API}/x/space/wbi/arc/search`, // wbi
+  USER_DETAIL: `${API}/x/space/wbi/acc/info`, // wbi
+  RELATION_STAT: `${API}/x/relation/stat`, // ?vmid=  (follower/following count)
+  COM_POPULAR: `${API}/x/web-interface/popular`, // wbi
+  RANKING: `${API}/x/web-interface/ranking/v2`, // ?rid=&type=all  (no wbi)
+  VIDEO_COMMENTS: `${API}/x/v2/reply`,
+  COMMENT_REPLY: `${API}/x/v2/reply/reply`,
+  USER_DYNAMIC: `${API}/x/polymer/web-dynamic/v1/feed/space`, // wbi
+  DYNAMIC_DETAIL: `${API}/x/polymer/web-dynamic/v1/detail`, // ?id=  (动态/opus 图文)
+  PGC_SEASON: `${API}/pgc/view/web/season`, // ?ep_id= / ?season_id=  (番剧)
+  PGC_PLAYURL: `${API}/pgc/player/web/playurl`, // ?ep_id=&cid=  (番剧, 地区/会员限制)
+  LIVEROOM_DETAIL: `${LIVE}/room/v1/Room/get_info`,
+  LIVE_VIDEOS: `${LIVE}/room/v1/Room/playUrl`,
+  LIVE_AREAS: `${LIVE}/room/v1/Area/getList`
+}
+
+export const BILI_REFERER = 'https://www.bilibili.com/'

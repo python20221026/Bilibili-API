@@ -1,0 +1,30 @@
+{
+  // Worker 名称（Cloudflare 上可改）
+  "name": "bilibili-api",
+  // 入口用构建产物，配合 no_bundle 直接部署已打包的 ESM
+  "main": "dist/worker.js",
+  "compatibility_date": "2025-01-01",
+  // dist/worker.js 已由 npm run build 打包完成，无需 wrangler 二次打包
+  "no_bundle": true,
+
+  // 普通字符串环境变量：与 Cloudflare 的 `env` 绑定对应
+  "vars": {
+    // HMAC 密钥 / 主 token（务必改成你自己的随机串，调用时 ?token=此值）
+    "BILI_API_TOKEN": "Abc159753!",
+    // B 站登录 Cookie，包含 SESSDATA 等，拿高清播放地址需要
+    "BILI_COOKIE": "SESSDATA=4ab2f1ff%2C1802961184%2Cb116f%2A81CjB2jzY-mFS4tRRGNb9HnIEkgy2IWsalcNYRgH9Fwqzn9SfVWcaCzSGiBex9yfQdbgMSVi1TdVVGaVR4T0dVa3NIaDc5UzVRMlJuWDVVb3BsTU50Z1l4WmdBUHB6WUMtQ1hYX2tTOHdZdi1yN05Qb3FGZ2ZZQklNZXZMU2pQZTd3NlFqay01MmZnIIEC;bili_jct=6d692e16449b556bd5d7dbd6d9ce1d25;buvid3=44A85EEA-A69A-A4E8-3A20-00BE072E259248569infoc;buvid4=273409A9-BA83-DE94-CE25-4862A38B7FAC33819-025030813-lTWXM1QRZ3fqw/dXHs+X6A%3D%3D;",
+    // 上游转发代理：B 站 API 请求经此代理转发，绕过 Cloudflare 出口 IP 风控（412）
+    "BILI_PROXY_URL": "https://proxy-bilibili.vercel.app/api/proxy"
+  },
+
+  // ---- 存储绑定示例：在 Cloudflare 控制台创建资源后取消注释并填入 ----
+  "d1_databases": [
+    { "binding": "BILI_D1", "database_name": "bilibili", "database_id": "c7dc629a-ed5e-4c24-9205-b07d9a4622ad" }
+  ],
+  "kv_namespaces": [
+    { "binding": "BILI_KV", "id": "f77a2693a1db477d9fd97b562c07993c" }
+  ],
+  "r2_buckets": [
+    { "binding": "BILI_R2", "bucket_name": "r21" }
+  ]
+}
