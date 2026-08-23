@@ -15,7 +15,7 @@ async function biliHeaders (ctx) {
   // is fingerprint-bound and gets 412'd. Replace it with our activated pair.
   try {
     const buvid = await getActivatedBuvidCookie(ctx)
-    const rest = cookie.split(';').map(s => s.trim()).filter(Boolean).filter(s => !/^buvid[34]=/i.test(s))
+    const rest = cookie.split(';').map(s => s.trim()).filter(Boolean).filter(s => !/^(buvid[34]|bili_ticket)=/i.test(s))
     cookie = [...rest, buvid].join('; ')
   } catch { /* fall back to the configured cookie as-is */ }
   return buildHeaders({
@@ -41,7 +41,7 @@ export async function fetchVideoPlayurl (ctx, bvId, cid, { fnval = '4048', qn = 
   const params = { cid: String(cid), qn: String(qn), fnval: String(fnval), fourk: '1', fnver: '0', otype: 'json', platform: 'pc' }
   if (avid && !bvId) params.avid = String(avid)
   else params.bvid = bvId
-  const q = wbiQuery(params)
+  const q = await wbiQuery(params, ctx)
   return fetchGetJson(`${EP.VIDEO_PLAYURL}?${q}`, await biliHeaders(ctx))
 }
 
@@ -50,7 +50,7 @@ export async function fetchVideoParts (ctx, bvId) {
 }
 
 export async function fetchUserProfile (ctx, mid) {
-  const q = wbiQuery({ mid: String(mid), platform: 'web', web_location: '1550101' })
+  const q = await wbiQuery({ mid: String(mid), platform: 'web', web_location: '1550101' }, ctx)
   return fetchGetJson(`${EP.USER_DETAIL}?${q}`, await biliHeaders(ctx))
 }
 
@@ -78,12 +78,12 @@ export async function fetchUserStat (ctx, mid) {
 }
 
 export async function fetchUserPostVideos (ctx, mid, pn = 1) {
-  const q = wbiQuery({ mid: String(mid), pn: String(pn), ps: '20', order: 'pubdate', platform: 'web', web_location: '1550101' })
+  const q = await wbiQuery({ mid: String(mid), pn: String(pn), ps: '20', order: 'pubdate', platform: 'web', web_location: '1550101' }, ctx)
   return fetchGetJson(`${EP.USER_POST}?${q}`, await biliHeaders(ctx))
 }
 
 export async function fetchComPopular (ctx, pn = 1) {
-  const q = wbiQuery({ ps: '20', pn: String(pn), web_location: '333.934' })
+  const q = await wbiQuery({ ps: '20', pn: String(pn), web_location: '333.934' }, ctx)
   return fetchGetJson(`${EP.COM_POPULAR}?${q}`, await biliHeaders(ctx))
 }
 

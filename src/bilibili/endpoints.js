@@ -4,6 +4,8 @@ const LIVE = 'https://api.live.bilibili.com'
 
 export const BiliEndpoints = {
   POST_DETAIL: `${API}/x/web-interface/view`, // ?bvid=  (no wbi)
+  WEB_NAV: `${API}/x/web-interface/nav`, // wbi_img keys (mixin key source)
+  GEN_WEB_TICKET: `${API}/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket`, // bili_ticket
   VIDEO_PLAYURL: `${API}/x/player/wbi/playurl`, // wbi
   VIDEO_PARTS: `${API}/x/player/pagelist`, // ?bvid=
   VIDEO_TAGS: `${API}/x/tag/archive/tags`, // ?bvid=  (UP-assigned tags)

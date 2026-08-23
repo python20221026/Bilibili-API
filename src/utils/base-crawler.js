@@ -52,11 +52,45 @@ function proxiedUrl (url) {
 }
 
 export async function fetchGetJson (url, headers) {
-  const resp = await fetch(proxiedUrl(url), { method: 'GET', headers, redirect: 'follow' })
+  const resp = await fetchWithRetry(url, { method: 'GET', headers, redirect: 'follow' })
   return parseJson(resp, url)
 }
 
 export async function fetchPostJson (url, headers, body) {
-  const resp = await fetch(proxiedUrl(url), { method: 'POST', headers, body, redirect: 'follow' })
+  const resp = await fetchWithRetry(url, { method: 'POST', headers, body, redirect: 'follow' })
   return parseJson(resp, url)
+}
+
+// Exponential-backoff retry around raw fetch. Retries network errors and
+// retryable upstream statuses (5xx / 429); other HTTP errors are returned
+// for parseJson to surface. Mirrors BiliParser's proxy-fetch.
+const RETRY_ATTEMPTS = 3
+const RETRY_INITIAL_DELAY_MS = 500
+const RETRY_MAX_DELAY_MS = 8000
+
+async function fetchWithRetry (url, init, {
+  attempts = RETRY_ATTEMPTS,
+  initialDelay = RETRY_INITIAL_DELAY_MS,
+  maxDelay = RETRY_MAX_DELAY_MS
+} = {}) {
+  let delay = initialDelay
+  for (let attempt = 1; ; attempt++) {
+    let resp = null
+    try {
+      resp = await fetch(proxiedUrl(url), init)
+    } catch (err) {
+      // Network-level failure — retry unless this was the last attempt.
+      if (attempt >= attempts) throw err
+    }
+    if (resp) {
+      const retryableStatus = !resp.ok && (resp.status >= 500 || resp.status === 429)
+      if (!retryableStatus) return resp
+      // Drain the body so the connection can be reused before retrying.
+      await resp.body?.cancel().catch(() => {})
+      if (attempt >= attempts) return resp // final attempt — surface the error
+    }
+    const jitter = Math.random() * 0.3 * delay
+    await new Promise(resolve => setTimeout(resolve, delay + jitter))
+    delay = Math.min(delay * 2, maxDelay)
+  }
 }
