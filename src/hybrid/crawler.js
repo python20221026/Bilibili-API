@@ -71,7 +71,8 @@ export function toMinimal (platform, videoId, data) {
       mp4_url: mp4, // combined, playable
       video_url: v, // DASH hi-res video (no audio)
       audio_url: a // DASH audio
-    }
+    },
+    play_restricted: data.play_restricted || null
   }
 }
 

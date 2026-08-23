@@ -23,10 +23,18 @@ export default async function bilibiliWebService (route, request, ctx) {
     return jsonResponse(await crawler.fetchOneVideo(ctx, bv), { router: route, params: { bv_id: bv } })
   }
   if (m === 'GET' && route === 'fetch_video_playurl') {
-    const bv = requireQ(request, 'bv_id')
-    requireAuth(request, ctx, PLATFORM, route, bv)
+    const bv = q(request, 'bv_id', '')
+    const aid = q(request, 'aid', '')
+    if (!bv && !aid) throw new HTTPException(400, { message: 'Missing query param: bv_id (or aid)' })
+    requireAuth(request, ctx, PLATFORM, route, bv || aid)
     const cid = requireQ(request, 'cid')
-    return jsonResponse(await crawler.fetchVideoPlayurl(ctx, bv, cid, { qn: q(request, 'qn', '80'), fnval: q(request, 'fnval', '4048') }), { router: route })
+    return jsonResponse(await crawler.fetchVideoPlayurl(ctx, bv, cid, { qn: q(request, 'qn', '80'), fnval: q(request, 'fnval', '4048'), avid: aid }), { router: route })
+  }
+  if (m === 'GET' && route === 'fetch_bangumi_playurl') {
+    const ep = requireQ(request, 'ep_id')
+    requireAuth(request, ctx, PLATFORM, route, ep)
+    const cid = requireQ(request, 'cid')
+    return jsonResponse(await crawler.fetchBangumiPlayurl(ctx, ep, cid, { qn: q(request, 'qn', '80'), fnval: q(request, 'fnval', '4048') }), { router: route })
   }
   if (m === 'GET' && route === 'fetch_video_parts') {
     const bv = requireQ(request, 'bv_id')

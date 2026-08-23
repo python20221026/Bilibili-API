@@ -323,6 +323,10 @@ async function fetchGetJson(url, headers) {
   const resp = await fetch(proxiedUrl(url), { method: "GET", headers, redirect: "follow" });
   return parseJson(resp, url);
 }
+async function fetchPostJson(url, headers, body) {
+  const resp = await fetch(proxiedUrl(url), { method: "POST", headers, body, redirect: "follow" });
+  return parseJson(resp, url);
+}
 
 // src/lib/md5.js
 var add32 = (a, b) => a + b & 4294967295;
@@ -531,67 +535,123 @@ var BiliEndpoints = {
 };
 var BILI_REFERER = "https://www.bilibili.com/";
 
-// src/bilibili/crawler.js
-function biliHeaders(ctx) {
+// src/bilibili/buvid.js
+var SPI_URL = "https://api.bilibili.com/x/frontend/finger/spi";
+var EX_CLIMB_URL = "https://api.bilibili.com/x/internal/gaia-gateway/ExClimbWuzhi";
+var TTL_MS = 12 * 3600 * 1e3;
+var cache = null;
+var inflight = null;
+function randPngTail() {
+  const bytes = new Uint8Array(44);
+  crypto.getRandomValues(bytes);
+  bytes.set([0, 0, 0, 0, 73, 69, 78, 68], 32);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).slice(-50);
+}
+async function activateBuvid(ctx) {
   setUpstreamProxy(ctx.config.upstreamProxy);
+  const h = buildHeaders({
+    userAgent: ctx.config.bili.userAgent,
+    referer: BILI_REFERER,
+    extra: { Origin: "https://www.bilibili.com" }
+  });
+  const spi = await fetchGetJson(SPI_URL, h);
+  const b3 = spi?.data?.b_3;
+  const b4 = spi?.data?.b_4;
+  if (!b3) throw new Error("finger/spi returned no b_3");
+  const cookie = `buvid3=${b3}${b4 ? `; buvid4=${b4}` : ""}`;
+  try {
+    const payload = JSON.stringify({ 3064: 1, "39c8": "333.1387.fp.risk", "3c43": { adca: "Windows", bfe9: randPngTail() } });
+    await fetchPostJson(EX_CLIMB_URL, { ...h, Cookie: cookie, "Content-Type": "application/json" }, JSON.stringify({ payload }));
+  } catch {
+  }
+  return cookie;
+}
+async function getActivatedBuvidCookie(ctx) {
+  if (cache && Date.now() - cache.ts < TTL_MS) return cache.cookie;
+  if (!inflight) {
+    inflight = activateBuvid(ctx).then((cookie) => {
+      cache = { cookie, ts: Date.now() };
+      return cookie;
+    }).finally(() => {
+      inflight = null;
+    });
+  }
+  return inflight;
+}
+
+// src/bilibili/crawler.js
+async function biliHeaders(ctx) {
+  setUpstreamProxy(ctx.config.upstreamProxy);
+  let cookie = ctx.config.bili.cookie || "";
+  try {
+    const buvid = await getActivatedBuvidCookie(ctx);
+    const rest = cookie.split(";").map((s) => s.trim()).filter(Boolean).filter((s) => !/^buvid[34]=/i.test(s));
+    cookie = [...rest, buvid].join("; ");
+  } catch {
+  }
   return buildHeaders({
     userAgent: ctx.config.bili.userAgent,
     referer: BILI_REFERER,
-    cookie: ctx.config.bili.cookie,
+    cookie,
     extra: { Origin: "https://www.bilibili.com" }
   });
 }
-function fetchOneVideo(ctx, bvId) {
+async function fetchOneVideo(ctx, bvId) {
   const url = `${BiliEndpoints.POST_DETAIL}?bvid=${encodeURIComponent(bvId)}`;
-  return fetchGetJson(url, biliHeaders(ctx));
+  return fetchGetJson(url, await biliHeaders(ctx));
 }
-function fetchVideoPlayurl(ctx, bvId, cid, { fnval = "4048", qn = "80" } = {}) {
-  const q2 = wbiQuery({ bvid: bvId, cid: String(cid), qn: String(qn), fnval: String(fnval), fourk: "1", fnver: "0", otype: "json", platform: "pc" });
-  return fetchGetJson(`${BiliEndpoints.VIDEO_PLAYURL}?${q2}`, biliHeaders(ctx));
+async function fetchVideoPlayurl(ctx, bvId, cid, { fnval = "4048", qn = "80", avid = null } = {}) {
+  const params = { cid: String(cid), qn: String(qn), fnval: String(fnval), fourk: "1", fnver: "0", otype: "json", platform: "pc" };
+  if (avid && !bvId) params.avid = String(avid);
+  else params.bvid = bvId;
+  const q2 = wbiQuery(params);
+  return fetchGetJson(`${BiliEndpoints.VIDEO_PLAYURL}?${q2}`, await biliHeaders(ctx));
 }
-function fetchVideoParts(ctx, bvId) {
-  return fetchGetJson(`${BiliEndpoints.VIDEO_PARTS}?bvid=${encodeURIComponent(bvId)}`, biliHeaders(ctx));
+async function fetchVideoParts(ctx, bvId) {
+  return fetchGetJson(`${BiliEndpoints.VIDEO_PARTS}?bvid=${encodeURIComponent(bvId)}`, await biliHeaders(ctx));
 }
-function fetchUserProfile(ctx, mid) {
+async function fetchUserProfile(ctx, mid) {
   const q2 = wbiQuery({ mid: String(mid), platform: "web", web_location: "1550101" });
-  return fetchGetJson(`${BiliEndpoints.USER_DETAIL}?${q2}`, biliHeaders(ctx));
+  return fetchGetJson(`${BiliEndpoints.USER_DETAIL}?${q2}`, await biliHeaders(ctx));
 }
-function fetchBangumiSeason(ctx, kind, id) {
+async function fetchBangumiSeason(ctx, kind, id) {
   const q2 = kind === "ss" ? `season_id=${encodeURIComponent(id)}` : `ep_id=${encodeURIComponent(id)}`;
-  return fetchGetJson(`${BiliEndpoints.PGC_SEASON}?${q2}`, biliHeaders(ctx));
+  return fetchGetJson(`${BiliEndpoints.PGC_SEASON}?${q2}`, await biliHeaders(ctx));
 }
-function fetchBangumiPlayurl(ctx, epId, cid, { fnval = "4048", qn = "80" } = {}) {
-  return fetchGetJson(`${BiliEndpoints.PGC_PLAYURL}?ep_id=${encodeURIComponent(epId)}&cid=${encodeURIComponent(cid)}&qn=${qn}&fnval=${fnval}&fourk=1`, biliHeaders(ctx));
+async function fetchBangumiPlayurl(ctx, epId, cid, { fnval = "4048", qn = "80" } = {}) {
+  return fetchGetJson(`${BiliEndpoints.PGC_PLAYURL}?ep_id=${encodeURIComponent(epId)}&cid=${encodeURIComponent(cid)}&qn=${qn}&fnval=${fnval}&fourk=1`, await biliHeaders(ctx));
 }
-function fetchDynamicDetail(ctx, dynId) {
-  return fetchGetJson(`${BiliEndpoints.DYNAMIC_DETAIL}?id=${encodeURIComponent(dynId)}&features=itemOpusStyle`, biliHeaders(ctx));
+async function fetchDynamicDetail(ctx, dynId) {
+  return fetchGetJson(`${BiliEndpoints.DYNAMIC_DETAIL}?id=${encodeURIComponent(dynId)}&features=itemOpusStyle`, await biliHeaders(ctx));
 }
-function fetchVideoTags(ctx, bvId) {
-  return fetchGetJson(`${BiliEndpoints.VIDEO_TAGS}?bvid=${encodeURIComponent(bvId)}`, biliHeaders(ctx));
+async function fetchVideoTags(ctx, bvId) {
+  return fetchGetJson(`${BiliEndpoints.VIDEO_TAGS}?bvid=${encodeURIComponent(bvId)}`, await biliHeaders(ctx));
 }
-function fetchUserStat(ctx, mid) {
-  return fetchGetJson(`${BiliEndpoints.RELATION_STAT}?vmid=${encodeURIComponent(mid)}`, biliHeaders(ctx));
+async function fetchUserStat(ctx, mid) {
+  return fetchGetJson(`${BiliEndpoints.RELATION_STAT}?vmid=${encodeURIComponent(mid)}`, await biliHeaders(ctx));
 }
-function fetchUserPostVideos(ctx, mid, pn = 1) {
+async function fetchUserPostVideos(ctx, mid, pn = 1) {
   const q2 = wbiQuery({ mid: String(mid), pn: String(pn), ps: "20", order: "pubdate", platform: "web", web_location: "1550101" });
-  return fetchGetJson(`${BiliEndpoints.USER_POST}?${q2}`, biliHeaders(ctx));
+  return fetchGetJson(`${BiliEndpoints.USER_POST}?${q2}`, await biliHeaders(ctx));
 }
-function fetchComPopular(ctx, pn = 1) {
+async function fetchComPopular(ctx, pn = 1) {
   const q2 = wbiQuery({ ps: "20", pn: String(pn), web_location: "333.934" });
-  return fetchGetJson(`${BiliEndpoints.COM_POPULAR}?${q2}`, biliHeaders(ctx));
+  return fetchGetJson(`${BiliEndpoints.COM_POPULAR}?${q2}`, await biliHeaders(ctx));
 }
-function fetchRanking(ctx, rid = 0) {
+async function fetchRanking(ctx, rid = 0) {
   const params = new URLSearchParams({ rid: String(rid), type: "all" });
-  return fetchGetJson(`${BiliEndpoints.RANKING}?${params.toString()}`, biliHeaders(ctx));
+  return fetchGetJson(`${BiliEndpoints.RANKING}?${params.toString()}`, await biliHeaders(ctx));
 }
-function fetchVideoComments(ctx, aid, pn = 1) {
-  return fetchGetJson(`${BiliEndpoints.VIDEO_COMMENTS}?type=1&oid=${encodeURIComponent(aid)}&pn=${pn}&sort=2`, biliHeaders(ctx));
+async function fetchVideoComments(ctx, aid, pn = 1) {
+  return fetchGetJson(`${BiliEndpoints.VIDEO_COMMENTS}?type=1&oid=${encodeURIComponent(aid)}&pn=${pn}&sort=2`, await biliHeaders(ctx));
 }
-function fetchCommentReply(ctx, aid, rpid, pn = 1) {
-  return fetchGetJson(`${BiliEndpoints.COMMENT_REPLY}?type=1&oid=${encodeURIComponent(aid)}&root=${encodeURIComponent(rpid)}&pn=${pn}`, biliHeaders(ctx));
+async function fetchCommentReply(ctx, aid, rpid, pn = 1) {
+  return fetchGetJson(`${BiliEndpoints.COMMENT_REPLY}?type=1&oid=${encodeURIComponent(aid)}&root=${encodeURIComponent(rpid)}&pn=${pn}`, await biliHeaders(ctx));
 }
-function fetchLiveRoomDetail(ctx, roomId) {
-  return fetchGetJson(`${BiliEndpoints.LIVEROOM_DETAIL}?room_id=${encodeURIComponent(roomId)}`, biliHeaders(ctx));
+async function fetchLiveRoomDetail(ctx, roomId) {
+  return fetchGetJson(`${BiliEndpoints.LIVEROOM_DETAIL}?room_id=${encodeURIComponent(roomId)}`, await biliHeaders(ctx));
 }
 
 // src/service/bilibili.js
@@ -610,10 +670,18 @@ async function bilibiliWebService(route, request, ctx) {
     return jsonResponse(await fetchOneVideo(ctx, bv), { router: route, params: { bv_id: bv } });
   }
   if (m === "GET" && route === "fetch_video_playurl") {
-    const bv = requireQ(request, "bv_id");
-    requireAuth(request, ctx, PLATFORM, route, bv);
+    const bv = q(request, "bv_id", "");
+    const aid = q(request, "aid", "");
+    if (!bv && !aid) throw new HTTPException(400, { message: "Missing query param: bv_id (or aid)" });
+    requireAuth(request, ctx, PLATFORM, route, bv || aid);
     const cid = requireQ(request, "cid");
-    return jsonResponse(await fetchVideoPlayurl(ctx, bv, cid, { qn: q(request, "qn", "80"), fnval: q(request, "fnval", "4048") }), { router: route });
+    return jsonResponse(await fetchVideoPlayurl(ctx, bv, cid, { qn: q(request, "qn", "80"), fnval: q(request, "fnval", "4048"), avid: aid }), { router: route });
+  }
+  if (m === "GET" && route === "fetch_bangumi_playurl") {
+    const ep = requireQ(request, "ep_id");
+    requireAuth(request, ctx, PLATFORM, route, ep);
+    const cid = requireQ(request, "cid");
+    return jsonResponse(await fetchBangumiPlayurl(ctx, ep, cid, { qn: q(request, "qn", "80"), fnval: q(request, "fnval", "4048") }), { router: route });
   }
   if (m === "GET" && route === "fetch_video_parts") {
     const bv = requireQ(request, "bv_id");
@@ -991,7 +1059,8 @@ async function fetchBiliBangumiCached(ctx, vid, refresh = false) {
     const pr = r?.result || r;
     dash = pr?.dash || null;
     if (r?.code && r.code !== 0) playMsg = r.message;
-  } catch {
+  } catch (e) {
+    playMsg = e?.message || String(e);
   }
   try {
     const r = await fetchBangumiPlayurl(ctx, epid, ep.cid, { fnval: "1", qn: "80" });
@@ -1036,14 +1105,17 @@ async function fetchBiliCached(ctx, bvId, refresh = false) {
   const cid = d.cid;
   let dash = null;
   let durl = null;
+  let playMsg = null;
   try {
     const r = await fetchVideoPlayurl(ctx, bvId, cid, { fnval: "4048", qn: "80" });
+    if (r?.code && r.code !== 0) playMsg = r.message;
     dash = r.data?.dash || null;
-  } catch {
+  } catch (e) {
+    playMsg = e?.message || String(e);
   }
   try {
     const r = await fetchVideoPlayurl(ctx, bvId, cid, { fnval: "1", qn: "80" });
-    durl = r.data?.durl || null;
+    if (!(r?.code && r.code !== 0)) durl = r.data?.durl || null;
   } catch {
   }
   const data = {
@@ -1061,7 +1133,8 @@ async function fetchBiliCached(ctx, bvId, refresh = false) {
     pages: Array.isArray(d.pages) ? d.pages.length : 1,
     pages_list: Array.isArray(d.pages) ? d.pages.map((p) => ({ cid: p.cid, page: p.page, part: p.part, duration: p.duration })) : [],
     dash: dash ? { video: dash.video || [], audio: dash.audio || [] } : null,
-    durl: durl || null
+    durl: durl || null,
+    play_restricted: !dash && !durl ? playMsg || "\u672A\u80FD\u53D6\u5F97\u64AD\u653E\u5730\u5740\uFF08\u4E0A\u6E38\u88AB\u98CE\u63A7\u6216\u9650\u5236\uFF09" : null
   };
   putJson(bucket, ctx, key, data);
   return { data, cached: false };
@@ -1130,7 +1203,8 @@ function toMinimal(platform, videoId, data) {
       // DASH hi-res video (no audio)
       audio_url: a
       // DASH audio
-    }
+    },
+    play_restricted: data.play_restricted || null
   };
 }
 async function hybridParseSingleVideo(ctx, url, minimal = false, refresh = false) {

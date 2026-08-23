@@ -85,7 +85,7 @@ export async function fetchBiliBangumiCached (ctx, vid, refresh = false) {
   let dash = null
   let durl = null
   let playMsg = null
-  try { const r = await bili.fetchBangumiPlayurl(ctx, epid, ep.cid, { fnval: '4048', qn: '80' }); const pr = r?.result || r; dash = pr?.dash || null; if (r?.code && r.code !== 0) playMsg = r.message } catch {}
+  try { const r = await bili.fetchBangumiPlayurl(ctx, epid, ep.cid, { fnval: '4048', qn: '80' }); const pr = r?.result || r; dash = pr?.dash || null; if (r?.code && r.code !== 0) playMsg = r.message } catch (e) { playMsg = e?.message || String(e) }
   try { const r = await bili.fetchBangumiPlayurl(ctx, epid, ep.cid, { fnval: '1', qn: '80' }); const pr = r?.result || r; durl = pr?.durl || null } catch {}
 
   const s = result.stat || {}
@@ -128,8 +128,9 @@ export async function fetchBiliCached (ctx, bvId, refresh = false) {
 
   let dash = null
   let durl = null
-  try { const r = await bili.fetchVideoPlayurl(ctx, bvId, cid, { fnval: '4048', qn: '80' }); dash = r.data?.dash || null } catch {}
-  try { const r = await bili.fetchVideoPlayurl(ctx, bvId, cid, { fnval: '1', qn: '80' }); durl = r.data?.durl || null } catch {}
+  let playMsg = null
+  try { const r = await bili.fetchVideoPlayurl(ctx, bvId, cid, { fnval: '4048', qn: '80' }); if (r?.code && r.code !== 0) playMsg = r.message; dash = r.data?.dash || null } catch (e) { playMsg = e?.message || String(e) }
+  try { const r = await bili.fetchVideoPlayurl(ctx, bvId, cid, { fnval: '1', qn: '80' }); if (!(r?.code && r.code !== 0)) durl = r.data?.durl || null } catch {}
 
   const data = {
     bvid: d.bvid || bvId,
@@ -148,7 +149,8 @@ export async function fetchBiliCached (ctx, bvId, refresh = false) {
       ? d.pages.map(p => ({ cid: p.cid, page: p.page, part: p.part, duration: p.duration }))
       : [],
     dash: dash ? { video: dash.video || [], audio: dash.audio || [] } : null,
-    durl: durl || null
+    durl: durl || null,
+    play_restricted: (!dash && !durl) ? (playMsg || '未能取得播放地址（上游被风控或限制）') : null
   }
   putJson(bucket, ctx, key, data)
   return { data, cached: false }
